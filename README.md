@@ -1,6 +1,7 @@
 # Carbonio Infrastructure Collection Script
 
-Bash utility to collect Carbonio environment diagnostics from a mailbox server.
+This ia a bash utility to collect Carbonio environment diagnostics from a mailbox server, the content of the folder created by the script
+could be shared in tickets opened from the Zextras partner portal.
 
 ## Purpose
 

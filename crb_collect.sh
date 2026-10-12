@@ -23,7 +23,7 @@ if grep -iq 'ubuntu' /etc/os-release; then
 		> "$OUTPUT_FILE"
 		/opt/zextras/bin/carbonio core getlicenseinfo >> "$OUTPUT_FILE" 2>&1
 	else
-		echo "carbonio-advanced is NOT installed on Ubuntu."
+		echo "This script must be executed on a Carbonio Mailbox server."
 		exit 1
 	fi
 # Check for RHEL 
@@ -33,7 +33,7 @@ elif grep -iq 'rhel' /etc/os-release; then
 		> "$OUTPUT_FILE"
 		/opt/zextras/bin/carbonio core getlicenseinfo >> "$OUTPUT_FILE" 2>&1
 	else
-		echo "carbonio-advanced is NOT installed on RHEL."
+		echo "This script must be executed on a Carbonio Mailbox server."
 		exit 1
 	fi
 else
@@ -44,18 +44,20 @@ fi
 
 echo "Starting Carbonio multi-server infrastructure data collection to $OUTPUT_FILE"
 
-# Collect localconfig.xml from all servers
+
 server_list=$(/opt/zextras/bin/carbonio prov -l gas)
 echo "--------------- Fetching configs for all nodes --------------------" >> "$OUTPUT_FILE"
 while IFS= read -r srv; do
     if [ -n "$srv" ]; then
-        # echo "Fetching local config from $srv..."
+        # Collect localconfig.xml from all servers
         # rsync -aWr -e "ssh -o StrictHostKeyChecking=no -i /opt/zextras/.ssh/zimbra_identity" "zextras@$srv:/opt/zextras/conf/localconfig.xml" "$OUTPUT_PATH/"$srv"_localconfig.txt"
 		echo "Fetching configuration for $srv..."
 		# Fetch data from Node Exporter with a 5-second timeout to prevent indefinite hanging
-		if ! metrics_data=$(curl -s --max-time 5 "http://$srv:9100/metrics"); then
+		metrics_data=$(curl -s --max-time 5 "http://$srv:9100/metrics")
+		curl_status=$?
+		if (( curl_status != 0 )); then
 			# curl failed (e.g., connection refused, timeout, host unreachable)
-			echo "Server $srv non available" >> "$OUTPUT_FILE"
+			echo "Node exporter nota available on $srv" >> "$OUTPUT_FILE"
 		else
 			# curl succeeded, proceed with grep and awk pipeline
 			OUTPUT_FILE=$OUTPUT_PATH"/"$srv"_resources.txt"
@@ -69,26 +71,29 @@ while IFS= read -r srv; do
 			}' >> "$OUTPUT_FILE" 2>&1
 		fi
 		OUTPUT_FILE=$OUTPUT_PATH"/"$srv"_conf.txt"
+		is_mailstore=false
 		echo -e "\n--------------- Server Config --------------------" >> "$OUTPUT_FILE"
 		/opt/zextras/bin/carbonio prov -l getServer $srv >> "$OUTPUT_FILE" 2>&1
-		#Check if carbonio advanced is installed
-		if ! metrics_data=$(curl -s --max-time 5 "http://$srv:9100/metrics"); then
-			# curl failed (e.g., connection refused, timeout, host unreachable)
-			echo "Server $srv non available" >> "$OUTPUT_FILE"
-		else
-			if curl -s "http://$srv:9100/metrics" | grep "installed_packages" | grep -q "carbonio-advanced"; then
+		#Check if carbonio advanced is present on the server looking at consul for carbonio-advanced service
+		consul_srvname="${srv//./-}"
+		consul_node=$(consul catalog nodes | awk 'NR > 1 {print $1}' | grep "$consul_srvname")
+		if [ -n "$consul_node" ] ; then
+			node_services=$(consul catalog services -node="$consul_node" 2>&1)
+			if grep -Fxq 'carbonio-advanced' <<< "$node_services"; then
 				echo -e "\n--------------- Server Config Zextras ------------" >> "$OUTPUT_FILE"
 				/opt/zextras/bin/carbonio config dump server $srv >> "$OUTPUT_FILE" 2>&1
+				echo -e "\n--------------- Server volumes ------------" >> "$OUTPUT_FILE"
+				/opt/zextras/bin/carbonio --host $srv powerstore getAllVolumes >> "$OUTPUT_FILE" 2>&1
 			fi
-		fi	
-    fi
+		fi
+	fi	
 done <<< "$server_list"
 
 # Get Carbonio data
 OUTPUT_FILE="$OUTPUT_PATH/carbonio_data.txt"
 echo -e "\n--------------- All servers --------------------" >> "$OUTPUT_FILE"
 while IFS= read -r srv; do
-echo $srv >> "$OUTPUT_FILE"
+	echo $srv >> "$OUTPUT_FILE"
 done <<< "$server_list"
 echo -e "\n--------------- Global Config --------------------" >> "$OUTPUT_FILE"
 /opt/zextras/bin/carbonio prov -l getAllConfig >> "$OUTPUT_FILE" 2>&1

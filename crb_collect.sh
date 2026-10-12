@@ -6,17 +6,17 @@ if [ ! -f /etc/os-release ]; then
 	exit 1
 fi
 
-# Ensure the script is executed by the 'zextras' user
-if [ "$(whoami)" != "zextras" ]; then
-    echo "Error: This script must be run as the 'zextras' user."
-    exit 1
+# Are we zextras?
+if [ `whoami` != "zextras" ]; then
+        echo "ERROR! ${0} must be run by the zextras user"
+        exit 1
 fi
 
 # Define the output file and initialize it (clears existing content)
 OUTPUT_PATH="/tmp/carbonio_"$(date +"%d%m%Y-%H%M%S")
 mkdir -p $OUTPUT_PATH
 
-# Check for Ubuntu
+# Check  Ubuntu
 if grep -iq 'ubuntu' /etc/os-release; then
 	if dpkg-query -W -f='${Status}' carbonio-advanced 2>/dev/null | grep -q "ok installed"; then
 		OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"
@@ -26,7 +26,7 @@ if grep -iq 'ubuntu' /etc/os-release; then
 		echo "This script must be executed on a Carbonio Mailbox server."
 		exit 1
 	fi
-# Check for RHEL 
+# Check  RHEL 
 elif grep -iq 'rhel' /etc/os-release; then
 	if rpm -q carbonio-advanced >/dev/null 2>&1; then
 		OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"

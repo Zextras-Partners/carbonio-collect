@@ -42,7 +42,7 @@ else
 fi
 
 
-echo "Starting Carbonio multi-server infrastructure data collection to $OUTPUT_FILE"
+echo "Starting Carbonio infrastructure data collection to $OUTPUT_FILE"
 
 
 server_list=$(/opt/zextras/bin/carbonio prov -l gas)
@@ -57,9 +57,9 @@ while IFS= read -r srv; do
 		curl_status=$?
 		if (( curl_status != 0 )); then
 			# curl failed (e.g., connection refused, timeout, host unreachable)
-			echo "Node exporter nota available on $srv" >> "$OUTPUT_FILE"
+			echo "Node exporter not available on $srv" >> "$OUTPUT_FILE"
 		else
-			# curl succeeded, proceed with grep and awk pipeline
+			#save the metrics data to a file for further analysis
 			OUTPUT_FILE=$OUTPUT_PATH"/"$srv"_resources.txt"
 			echo "CPUs "$(curl -s http://$srv:9100/metrics | grep '^node_cpu_seconds_total' | grep -wc 'mode="idle"') >> "$OUTPUT_FILE" 2>&1
 			curl -s http://$srv:9100/metrics | awk '/^node_memory_MemTotal_bytes / {printf "RAM Total: %.2f GB\n", $2 / 1024 / 1024 / 1024}'  >> "$OUTPUT_FILE" 2>&1
@@ -89,8 +89,8 @@ while IFS= read -r srv; do
 	fi	
 done <<< "$server_list"
 
-# Get Carbonio data
-OUTPUT_FILE="$OUTPUT_PATH/carbonio_data.txt"
+# Get Carbonio configs
+OUTPUT_FILE="$OUTPUT_PATH/carbonio_configs.txt"
 echo -e "\n--------------- All servers --------------------" >> "$OUTPUT_FILE"
 while IFS= read -r srv; do
 	echo $srv >> "$OUTPUT_FILE"
@@ -100,7 +100,7 @@ echo -e "\n--------------- Global Config --------------------" >> "$OUTPUT_FILE"
 echo -e "\n--------------- Global Config Zextras ------------" >> "$OUTPUT_FILE"
 /opt/zextras/bin/carbonio config dump global >> "$OUTPUT_FILE" 2>&1
 
-# Consul Members
+# Get mesh data from Consul
 OUTPUT_FILE="$OUTPUT_PATH/carbonio_mesh.txt"
 echo -e "\n--------------- Consul members --------------------" >> "$OUTPUT_FILE"
 if command -v consul >/dev/null 2>&1; then

@@ -16,7 +16,7 @@ fi
 OUTPUT_PATH="/tmp/carbonio_"$(date +"%d%m%Y-%H%M%S")
 mkdir -p $OUTPUT_PATH
 
-# Check  Ubuntu
+# Check Ubuntu
 if grep -iq 'ubuntu' /etc/os-release; then
 	if dpkg-query -W -f='${Status}' carbonio-advanced 2>/dev/null | grep -q "ok installed"; then
 		OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"
@@ -26,7 +26,7 @@ if grep -iq 'ubuntu' /etc/os-release; then
 		echo "This script must be executed on a Carbonio Mailbox server."
 		exit 1
 	fi
-# Check  RHEL 
+# Check RHEL 
 elif grep -iq 'rhel' /etc/os-release; then
 	if rpm -q carbonio-advanced >/dev/null 2>&1; then
 		OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"

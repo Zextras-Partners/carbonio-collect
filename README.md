@@ -20,6 +20,7 @@ This script gathers configuration, service, and health information for a Carboni
 - Node Exporter metrics (CPU, memory, installed packages)
 - Carbonio global/server configuration
 - Consul members, services, and health status
+- Domains and COS settings if executet using -e option
 
 
 ## Requirements
@@ -53,20 +54,17 @@ The script creates a folder such as:
 
 and writes files including:
 
-
 - carbonio_license.txt
-- <server>_resources.txt
-- <server>_conf.txt
 - carbonio_data.txt
 - carbonio_mesh.txt
+
+And subfolders with server data.
 
 
 ## Security
 
 
-The dumped config can contains clear text passwords.
-
-
+The dump avoid to save common parameters that could contains clear text passwords.
 The output may contain sensitive infrastructure details. Store the generated files in secure, access-controlled locations.
 
 

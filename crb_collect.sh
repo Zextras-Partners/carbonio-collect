@@ -1,5 +1,21 @@
 #!/bin/bash
 
+# Initialize flag variable
+flag_e=""
+
+# Parse command line options
+while getopts ":e" opt; do
+    case ${opt} in
+        e)
+            flag_e="true"
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            exit 1
+            ;;
+    esac
+done
+
 # Check if os-release file exists
 if [ ! -f /etc/os-release ]; then
 	echo "Error: /etc/os-release not found. Cannot determine OS."
@@ -46,12 +62,16 @@ echo "Starting Carbonio infrastructure data collection to $OUTPUT_FILE"
 
 
 server_list=$(/opt/zextras/bin/carbonio prov -l gas)
-echo "--------------- Fetching configs for all nodes --------------------" >> "$OUTPUT_FILE"
 while IFS= read -r srv; do
     if [ -n "$srv" ]; then
         # Collect localconfig.xml from all servers
-        # rsync -aWr -e "ssh -o StrictHostKeyChecking=no -i /opt/zextras/.ssh/zimbra_identity" "zextras@$srv:/opt/zextras/conf/localconfig.xml" "$OUTPUT_PATH/"$srv"_localconfig.txt"
+        mkdir -p "$OUTPUT_PATH/servers/" 
+        mkdir -p "$OUTPUT_PATH/localconfigs/" 
+		rsync -aWr -e "ssh -o StrictHostKeyChecking=no -i /opt/zextras/.ssh/zimbra_identity" "zextras@$srv:/opt/zextras/conf/localconfig.xml" "$OUTPUT_PATH/localconfigs/"$srv"_localconfig.txt"
+		# Remove passwords from the localconfig.xml file
+		perl -0777 -pi -e 's/(<key name="[^"]*_password">\s*<value>)[^<]*(<\/value>)/\1\2/g' "$OUTPUT_PATH/localconfigs/"$srv"_localconfig.txt"
 		echo "Fetching configuration for $srv..."
+		OUTPUT_FILE="$OUTPUT_PATH/servers/"$srv"_resources.txt"
 		# Fetch data from Node Exporter with a 5-second timeout to prevent indefinite hanging
 		metrics_data=$(curl -s --max-time 5 "http://$srv:9100/metrics")
 		curl_status=$?
@@ -60,7 +80,6 @@ while IFS= read -r srv; do
 			echo "Node exporter not available on $srv" >> "$OUTPUT_FILE"
 		else
 			#save the metrics data to a file for further analysis
-			OUTPUT_FILE=$OUTPUT_PATH"/"$srv"_resources.txt"
 			echo "CPUs "$(curl -s http://$srv:9100/metrics | grep '^node_cpu_seconds_total' | grep -wc 'mode="idle"') >> "$OUTPUT_FILE" 2>&1
 			curl -s http://$srv:9100/metrics | awk '/^node_memory_MemTotal_bytes / {printf "RAM Total: %.2f GB\n", $2 / 1024 / 1024 / 1024}'  >> "$OUTPUT_FILE" 2>&1
 			echo -e "\n--------------- Packages installed ---------------" >> "$OUTPUT_FILE"
@@ -70,7 +89,7 @@ while IFS= read -r srv; do
 				printf "%-35s\t%s\n", pkg[1], ver[1]
 			}' >> "$OUTPUT_FILE" 2>&1
 		fi
-		OUTPUT_FILE=$OUTPUT_PATH"/"$srv"_conf.txt"
+		OUTPUT_FILE="$OUTPUT_PATH/servers/"$srv"_conf.txt"
 		is_mailstore=false
 		echo -e "\n--------------- Server Config --------------------" >> "$OUTPUT_FILE"
 		/opt/zextras/bin/carbonio prov -l getServer $srv >> "$OUTPUT_FILE" 2>&1
@@ -136,5 +155,30 @@ else
     echo "Warning: 'jq' not found, dumping raw JSON." >> "$OUTPUT_FILE"
     curl -s http://127.0.0.1:8500/v1/health/state/any >> "$OUTPUT_FILE"
 fi
+
+if [ "$flag_e" = "true" ]; then
+	mkdir -p "$OUTPUT_PATH/domains/"
+	# Get domains 
+
+	domain_list=$(/opt/zextras/bin/carbonio prov -l gad)
+	while IFS= read -r domain; do
+			OUTPUT_FILE="$OUTPUT_PATH/domains/$domain.txt"
+			echo -e "\n--------------- Domain settings for $domain --------------------" >> "$OUTPUT_FILE"
+			/opt/zextras/bin/carbonio prov -l getDomain $domain >> "$OUTPUT_FILE" 2>&1
+			echo -e "\n--------------- Carbonio domain setting $domain --------------------" >> "$OUTPUT_FILE"
+			/opt/zextras/bin/carbonio config dump domain $domain >> "$OUTPUT_FILE" 2>&1
+	done <<< "$domain_list"
+
+	# Get COSes 
+	mkdir -p "$OUTPUT_PATH/coses/"
+	domain_list=$(/opt/zextras/bin/carbonio prov -l gac)
+	while IFS= read -r cos; do
+		    OUTPUT_FILE="$OUTPUT_PATH/coses/$cos.txt"
+			echo -e "\n--------------- Cos $cos --------------------" >> "$OUTPUT_FILE"
+			/opt/zextras/bin/carbonio prov -l getCos $cos >> "$OUTPUT_FILE" 2>&1
+			echo -e "\n--------------- Carbonio COS setting $cos --------------------" >> "$OUTPUT_FILE"
+			/opt/zextras/bin/carbonio config dump cos $cos >> "$OUTPUT_FILE" 2>&1
+	done <<< "$domain_list"	
+fi	
 
 echo "Data collection complete. Output saved to $OUTPUT_PATH"

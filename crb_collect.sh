@@ -34,21 +34,13 @@ mkdir -p $OUTPUT_PATH
 
 # Check Ubuntu
 if grep -iq 'ubuntu' /etc/os-release; then
-	if dpkg-query -W -f='${Status}' carbonio-advanced 2>/dev/null | grep -q "ok installed"; then
-		OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"
-		> "$OUTPUT_FILE"
-		/opt/zextras/bin/carbonio core getlicenseinfo >> "$OUTPUT_FILE" 2>&1
-	else
+	if ! dpkg-query -W -f='${Status}' carbonio-advanced 2>/dev/null | grep -q "ok installed"; then
 		echo "This script must be executed on a Carbonio Mailbox server."
 		exit 1
 	fi
 # Check RHEL 
 elif grep -iq 'rhel' /etc/os-release; then
-	if rpm -q carbonio-advanced >/dev/null 2>&1; then
-		OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"
-		> "$OUTPUT_FILE"
-		/opt/zextras/bin/carbonio core getlicenseinfo >> "$OUTPUT_FILE" 2>&1
-	else
+	if ! rpm -q carbonio-advanced >/dev/null 2>&1; then
 		echo "This script must be executed on a Carbonio Mailbox server."
 		exit 1
 	fi
@@ -58,8 +50,11 @@ else
 fi
 
 
-echo "Starting Carbonio infrastructure data collection to $OUTPUT_FILE"
+echo "Starting Carbonio infrastructure data collection to $OUTPUT_PATH..."
 
+OUTPUT_FILE="$OUTPUT_PATH/carbonio_license.txt"
+echo "Fetching license information..."
+/opt/zextras/bin/carbonio core getlicenseinfo > "$OUTPUT_FILE" 2>&1
 
 server_list=$(/opt/zextras/bin/carbonio prov -l gas)
 while IFS= read -r srv; do
@@ -67,6 +62,7 @@ while IFS= read -r srv; do
         # Collect localconfig.xml from all servers
         mkdir -p "$OUTPUT_PATH/servers/" 
         mkdir -p "$OUTPUT_PATH/localconfigs/" 
+		echo "Fetching localconfigs..."
 		rsync -aWr -e "ssh -o StrictHostKeyChecking=no -i /opt/zextras/.ssh/zimbra_identity" "zextras@$srv:/opt/zextras/conf/localconfig.xml" "$OUTPUT_PATH/localconfigs/"$srv"_localconfig.txt"
 		# Remove passwords from the localconfig.xml file
 		perl -0777 -pi -e 's/(<key name="[^"]*_password">\s*<value>)[^<]*(<\/value>)/\1\2/g' "$OUTPUT_PATH/localconfigs/"$srv"_localconfig.txt"
@@ -82,6 +78,7 @@ while IFS= read -r srv; do
 			#save the metrics data to a file for further analysis
 			echo "CPUs "$(curl -s http://$srv:9100/metrics | grep '^node_cpu_seconds_total' | grep -wc 'mode="idle"') >> "$OUTPUT_FILE" 2>&1
 			curl -s http://$srv:9100/metrics | awk '/^node_memory_MemTotal_bytes / {printf "RAM Total: %.2f GB\n", $2 / 1024 / 1024 / 1024}'  >> "$OUTPUT_FILE" 2>&1
+			echo "Fetching installed packages..."
 			echo -e "\n--------------- Packages installed ---------------" >> "$OUTPUT_FILE"
 			echo "$metrics_data" | grep installed_packages | awk '{
 				match($0, /package_name="([^"]+)"/, pkg); 
@@ -99,6 +96,7 @@ while IFS= read -r srv; do
 		if [ -n "$consul_node" ] ; then
 			node_services=$(consul catalog services -node="$consul_node" 2>&1)
 			if grep -Fxq 'carbonio-advanced' <<< "$node_services"; then
+				echo "Fetching server configs..."
 				echo -e "\n--------------- Server Config Zextras ------------" >> "$OUTPUT_FILE"
 				/opt/zextras/bin/carbonio config dump server $srv >> "$OUTPUT_FILE" 2>&1
 				echo -e "\n--------------- Server volumes ------------" >> "$OUTPUT_FILE"
@@ -109,6 +107,7 @@ while IFS= read -r srv; do
 done <<< "$server_list"
 
 # Get Carbonio configs
+echo "Fetching global configs..."
 OUTPUT_FILE="$OUTPUT_PATH/carbonio_configs.txt"
 echo -e "\n--------------- All servers --------------------" >> "$OUTPUT_FILE"
 while IFS= read -r srv; do
@@ -117,9 +116,10 @@ done <<< "$server_list"
 echo -e "\n--------------- Global Config --------------------" >> "$OUTPUT_FILE"
 /opt/zextras/bin/carbonio prov -l getAllConfig >> "$OUTPUT_FILE" 2>&1
 echo -e "\n--------------- Global Config Zextras ------------" >> "$OUTPUT_FILE"
-/opt/zextras/bin/carbonio config dump global >> "$OUTPUT_FILE" 2>&1
+/opt/zextras/bin/carbonio config dump global | grep -v secret >> "$OUTPUT_FILE" 2>&1
 
 # Get mesh data from Consul
+echo "Fetching mesh data..."
 OUTPUT_FILE="$OUTPUT_PATH/carbonio_mesh.txt"
 echo -e "\n--------------- Consul members --------------------" >> "$OUTPUT_FILE"
 if command -v consul >/dev/null 2>&1; then
@@ -159,26 +159,28 @@ fi
 if [ "$flag_e" = "true" ]; then
 	mkdir -p "$OUTPUT_PATH/domains/"
 	# Get domains 
-
+	echo "Fetching domains settings..."
 	domain_list=$(/opt/zextras/bin/carbonio prov -l gad)
 	while IFS= read -r domain; do
 			OUTPUT_FILE="$OUTPUT_PATH/domains/$domain.txt"
 			echo -e "\n--------------- Domain settings for $domain --------------------" >> "$OUTPUT_FILE"
-			/opt/zextras/bin/carbonio prov -l getDomain $domain >> "$OUTPUT_FILE" 2>&1
+			#Dump domain settings excluding Bind Passwords
+			/opt/zextras/bin/carbonio prov -l getDomain $domain | grep -v BindPassword >> "$OUTPUT_FILE" 2>&1
 			echo -e "\n--------------- Carbonio domain setting $domain --------------------" >> "$OUTPUT_FILE"
 			/opt/zextras/bin/carbonio config dump domain $domain >> "$OUTPUT_FILE" 2>&1
 	done <<< "$domain_list"
 
 	# Get COSes 
 	mkdir -p "$OUTPUT_PATH/coses/"
-	domain_list=$(/opt/zextras/bin/carbonio prov -l gac)
+	echo "Fetching COS settings..."
+	cos_list=$(/opt/zextras/bin/carbonio prov -l gac)
 	while IFS= read -r cos; do
 		    OUTPUT_FILE="$OUTPUT_PATH/coses/$cos.txt"
 			echo -e "\n--------------- Cos $cos --------------------" >> "$OUTPUT_FILE"
 			/opt/zextras/bin/carbonio prov -l getCos $cos >> "$OUTPUT_FILE" 2>&1
 			echo -e "\n--------------- Carbonio COS setting $cos --------------------" >> "$OUTPUT_FILE"
 			/opt/zextras/bin/carbonio config dump cos $cos >> "$OUTPUT_FILE" 2>&1
-	done <<< "$domain_list"	
+	done <<< "$cos_list"	
 fi	
 
 echo "Data collection complete. Output saved to $OUTPUT_PATH"

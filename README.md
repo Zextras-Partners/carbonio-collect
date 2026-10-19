@@ -35,7 +35,8 @@ This script gathers configuration, service, and health information for a Carboni
 
 
 sudo -u zextras   
-crb_collect.sh
+crb_collect.sh It collects infrastructure information 
+crb_collect.sh -e It collects infrastructure information and also domains and COS
 
 
 ## Output

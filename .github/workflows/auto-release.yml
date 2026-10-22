@@ -1,0 +1,90 @@
+
+name: Auto Tag and Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialize releases so two runs cannot pick the same next version.
+concurrency:
+  group: carbonio-collect-auto-release
+  queue: max
+
+jobs:
+  release:
+    name: Create tag and GitHub Release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create versioned release with included commits
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+          versions=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true)
+          latest_tag=$(printf '%s\n' "$versions" | tail -n 1)
+          previous_tag="$latest_tag"
+
+          if [[ -z "$latest_tag" ]]; then
+            new_tag='v0.1.0'
+            previous_tag=''
+          else
+            if ! git merge-base --is-ancestor "$latest_tag" "$TARGET_SHA"; then
+              echo "Skipping: $TARGET_SHA is already behind $latest_tag."
+              exit 0
+            fi
+
+            if [[ "$(git rev-list -n 1 "$latest_tag")" == "$TARGET_SHA" ]]; then
+              new_tag="$latest_tag"
+              if gh release view "$new_tag" >/dev/null 2>&1; then
+                echo "Release $new_tag already exists."
+                exit 0
+              fi
+              previous_tag=$(printf '%s\n' "$versions" | tail -n 2 | head -n 1)
+              if [[ "$previous_tag" == "$new_tag" ]]; then
+                previous_tag=''
+              fi
+            else
+              IFS='.' read -r major minor patch <<< "${latest_tag#v}"
+              new_tag="v${major}.${minor}.$((10#$patch + 1))"
+            fi
+          fi
+
+          echo "Publishing $new_tag for $TARGET_SHA"
+          if [[ -n "$previous_tag" ]]; then
+            range="${previous_tag}..${TARGET_SHA}"
+          else
+            range="$TARGET_SHA"
+          fi
+
+          {
+            printf '## Included commits\n\n'
+            git log --reverse \
+              --format='- %s ([`%h`](https://github.com/'"$GH_REPO"'/commit/%H))' \
+              "$range"
+            if [[ -n "$previous_tag" ]]; then
+              printf '\n**Full Changelog:** https://github.com/%s/compare/%s...%s\n' \
+                "$GH_REPO" "$previous_tag" "$new_tag"
+            fi
+          } > release-notes.md
+
+          gh release create "$new_tag" \
+            --target "$TARGET_SHA" \
+            --title "$new_tag" \
+            --notes-file release-notes.md

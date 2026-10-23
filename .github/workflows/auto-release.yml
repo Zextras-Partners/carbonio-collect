@@ -12,79 +12,53 @@ on:
 permissions:
   contents: write
 
-# Serialize releases so two runs cannot pick the same next version.
 concurrency:
   group: carbonio-collect-auto-release
   queue: max
 
 jobs:
   release:
-    name: Create tag and GitHub Release
+    name: Publish semantic release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository and tags
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Create versioned release with included commits
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Validate script syntax
+        run: bash -n crb_collect.sh
+
+      - name: Install release tools
+        run: |
+          npm install --no-save --no-package-lock --no-audit --no-fund \
+            semantic-release@25.0.9 \
+            conventional-changelog-conventionalcommits@10.4.1
+
+      - name: Skip outdated workflow runs
+        id: head
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TARGET_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          git fetch --tags origin
-          versions=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true)
-          latest_tag=$(printf '%s\n' "$versions" | tail -n 1)
-          previous_tag="$latest_tag"
+          git fetch origin main --tags
 
-          if [[ -z "$latest_tag" ]]; then
-            new_tag='v0.1.0'
-            previous_tag=''
+          if [[ "$(git rev-parse HEAD)" == "$(git rev-parse refs/remotes/origin/main)" ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
           else
-            if ! git merge-base --is-ancestor "$latest_tag" "$TARGET_SHA"; then
-              echo "Skipping: $TARGET_SHA is already behind $latest_tag."
-              exit 0
-            fi
-
-            if [[ "$(git rev-list -n 1 "$latest_tag")" == "$TARGET_SHA" ]]; then
-              new_tag="$latest_tag"
-              if gh release view "$new_tag" >/dev/null 2>&1; then
-                echo "Release $new_tag already exists."
-                exit 0
-              fi
-              previous_tag=$(printf '%s\n' "$versions" | tail -n 2 | head -n 1)
-              if [[ "$previous_tag" == "$new_tag" ]]; then
-                previous_tag=''
-              fi
-            else
-              IFS='.' read -r major minor patch <<< "${latest_tag#v}"
-              new_tag="v${major}.${minor}.$((10#$patch + 1))"
-            fi
+            echo 'This run no longer targets the latest main commit.'
+            echo 'current=false' >> "$GITHUB_OUTPUT"
           fi
 
-          echo "Publishing $new_tag for $TARGET_SHA"
-          if [[ -n "$previous_tag" ]]; then
-            range="${previous_tag}..${TARGET_SHA}"
-          else
-            range="$TARGET_SHA"
-          fi
-
-          {
-            printf '## Included commits\n\n'
-            git log --reverse \
-              --format='- %s ([`%h`](https://github.com/'"$GH_REPO"'/commit/%H))' \
-              "$range"
-            if [[ -n "$previous_tag" ]]; then
-              printf '\n**Full Changelog:** https://github.com/%s/compare/%s...%s\n' \
-                "$GH_REPO" "$previous_tag" "$new_tag"
-            fi
-          } > release-notes.md
-
-          gh release create "$new_tag" \
-            --target "$TARGET_SHA" \
-            --title "$new_tag" \
-            --notes-file release-notes.md
+      - name: Publish release
+        if: steps.head.outputs.current == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --no-install semantic-release

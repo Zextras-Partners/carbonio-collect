@@ -181,6 +181,6 @@ if [ "$flag_e" = "true" ]; then
 			echo -e "\n--------------- Carbonio COS setting $cos --------------------" >> "$OUTPUT_FILE"
 			/opt/zextras/bin/carbonio config dump cos $cos >> "$OUTPUT_FILE" 2>&1
 	done <<< "$cos_list"	
-fi	
+fi
 
 echo "Data collection complete. Output saved to $OUTPUT_PATH"

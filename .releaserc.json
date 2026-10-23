@@ -1,0 +1,37 @@
+
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {}
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {}
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "crb_collect.sh",
+            "name": "crb_collect.sh",
+            "label": "Carbonio infrastructure collection script"
+          }
+        ],
+        "successComment": false,
+        "failComment": false,
+        "releasedLabels": false,
+        "releaseBodyTemplate": "<%= nextRelease.notes %>\n\n### Included commits\n\n<% commits.forEach(function(commit) { %>- <%= commit.subject %> ([`<%= commit.hash.slice(0, 7) %>`](https://github.com/Zextras-Partners/carbonio-collect/commit/<%= commit.hash %>))\n<% }) %>"
+      }
+    ]
+  ]
+}

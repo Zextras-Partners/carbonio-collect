@@ -34,10 +34,19 @@ This script gathers configuration, service, and health information for a Carboni
 
 ## Usage
 
+Download the latest version from the [GitHub Releases page](https://github.com/Zextras-Partners/carbonio-collect/releases), where you can also review the changes included in each release.
 
-sudo -u zextras   
-crb_collect.sh It collects infrastructure information 
-crb_collect.sh -e It collects infrastructure information and also domains and COS
+Download the source code as a ZIP or TAR.GZ archive, extract it on a Carbonio mailbox server, and run the script as the `zextras` user:
+
+```
+sudo -u zextras bash crb_collect.sh
+```
+
+To also collect domains and COS information, use the `-e` option:
+
+```
+sudo -u zextras bash crb_collect.sh -e
+```
 
 
 ## Output
